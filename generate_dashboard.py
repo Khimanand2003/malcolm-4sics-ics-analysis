@@ -1,0 +1,486 @@
+#!/usr/bin/env python3
+"""
+4SICS ICS Network Forensics - Interactive HTML Dashboard Generator
+Generates a modern, responsive, glassmorphism dark-mode HTML dashboard.
+"""
+
+import os
+import json
+import sys
+from analyze_ics_pcap import parse_pcap, ICS_DEVICES, MODBUS_FUNCTIONS
+
+def generate_html_dashboard(results, output_file):
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4SICS ICS Network Forensics Dashboard</title>
+    <!-- Google Fonts & Chart.js -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {{
+            --bg-dark: #0a0e17;
+            --card-bg: rgba(22, 30, 46, 0.7);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --accent-blue: #00d2ff;
+            --accent-purple: #9d4edd;
+            --accent-red: #ff3366;
+            --accent-green: #00e676;
+            --accent-yellow: #ffbe0b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+        }}
+
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+
+        body {{
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(0, 210, 255, 0.12) 0px, transparent 50%),
+                radial-gradient(at 90% 90%, rgba(157, 78, 221, 0.12) 0px, transparent 50%),
+                radial-gradient(at 50% 50%, rgba(255, 51, 102, 0.08) 0px, transparent 50%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 2rem;
+        }}
+
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+        }}
+
+        /* Header */
+        header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--card-border);
+        }}
+
+        .logo-area h1 {{
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00d2ff 0%, #9d4edd 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.25rem;
+        }}
+
+        .logo-area p {{
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }}
+
+        .status-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 51, 102, 0.15);
+            border: 1px solid rgba(255, 51, 102, 0.3);
+            color: #ff5277;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-weight: 500;
+            font-size: 0.85rem;
+        }}
+
+        .status-badge .dot {{
+            width: 8px;
+            height: 8px;
+            background-color: #ff3366;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #ff3366;
+            animation: pulse 2s infinite;
+        }}
+
+        @keyframes pulse {{
+            0% {{ opacity: 1; transform: scale(1); }}
+            50% {{ opacity: 0.4; transform: scale(1.2); }}
+            100% {{ opacity: 1; transform: scale(1); }}
+        }}
+
+        /* Grid Metrics */
+        .metrics-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }}
+
+        .metric-card {{
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }}
+
+        .metric-card:hover {{
+            transform: translateY(-4px);
+            border-color: rgba(0, 210, 255, 0.3);
+        }}
+
+        .metric-title {{
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+        }}
+
+        .metric-value {{
+            font-size: 2.25rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            margin-bottom: 0.5rem;
+        }}
+
+        .metric-card.red .metric-value {{ color: var(--accent-red); }}
+        .metric-card.blue .metric-value {{ color: var(--accent-blue); }}
+        .metric-card.purple .metric-value {{ color: var(--accent-purple); }}
+        .metric-card.green .metric-value {{ color: var(--accent-green); }}
+
+        .metric-subtitle {{
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }}
+
+        /* Charts Grid */
+        .charts-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }}
+
+        .chart-card {{
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+        }}
+
+        .chart-title {{
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+
+        .chart-container {{
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }}
+
+        /* Table */
+        .section-card {{
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }}
+
+        .table-responsive {{
+            overflow-x: auto;
+            margin-top: 1rem;
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }}
+
+        th {{
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-muted);
+            padding: 0.85rem 1rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--card-border);
+        }}
+
+        td {{
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-family: 'JetBrains Mono', monospace;
+        }}
+
+        tr:hover td {{
+            background: rgba(255, 255, 255, 0.02);
+        }}
+
+        .badge {{
+            display: inline-block;
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+        }}
+
+        .badge.danger {{ background: rgba(255, 51, 102, 0.2); color: #ff5277; }}
+        .badge.warning {{ background: rgba(255, 190, 11, 0.2); color: #ffbe0b; }}
+        .badge.info {{ background: rgba(0, 210, 255, 0.2); color: #00d2ff; }}
+
+        footer {{
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--card-border);
+        }}
+
+        footer a {{
+            color: var(--accent-blue);
+            text-decoration: none;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="logo-area">
+                <h1>4SICS ICS Network Forensics</h1>
+                <p>Interactive Analysis Dashboard & Protocol Timeline | Dataset: Netresec 4SICS</p>
+            </div>
+            <div class="status-badge">
+                <span class="dot"></span>
+                <span>Day 3 Attack Detected (IP: 192.168.2.166)</span>
+            </div>
+        </header>
+
+        <!-- Summary Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card blue">
+                <div class="metric-title">Total Processed Packets</div>
+                <div class="metric-value">3,773,984</div>
+                <div class="metric-subtitle">Across 3 Days of Capture Files</div>
+            </div>
+            <div class="metric-card purple">
+                <div class="metric-title">Total Modbus Requests</div>
+                <div class="metric-value">99,567</div>
+                <div class="metric-subtitle">Modbus TCP Traffic (Port 502)</div>
+            </div>
+            <div class="metric-card red">
+                <div class="metric-title">High-Risk Coil Writes</div>
+                <div class="metric-value">10,684</div>
+                <div class="metric-subtitle">WRITE_MULTIPLE_COILS Commands</div>
+            </div>
+            <div class="metric-card green">
+                <div class="metric-title">Attacker Traffic Volume</div>
+                <div class="metric-value">69,827</div>
+                <div class="metric-subtitle">Packets from 192.168.2.166</div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts-grid">
+            <!-- 3-Day Traffic Timeline Chart -->
+            <div class="chart-card">
+                <div class="chart-title">
+                    <span>3-Day Packet Volume Timeline</span>
+                    <span class="badge info">Daily Progression</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="timelineChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Attacker Target Breakdown -->
+            <div class="chart-card">
+                <div class="chart-title">
+                    <span>Attacker Target Distribution (192.168.2.166)</span>
+                    <span class="badge danger">Top Targets</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="targetsChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Devices & Topology Table -->
+        <div class="section-card">
+            <div class="chart-title">
+                <span>ICS Lab Devices & Targeted Asset Mapping</span>
+                <span class="badge warning">4SICS Lab Racks</span>
+            </div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>IP Address</th>
+                            <th>Device / Model Name</th>
+                            <th>Rack Segment</th>
+                            <th>Attacker Packets Received</th>
+                            <th>Threat Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>192.168.88.60</td>
+                            <td>Moxa EDS-508A Switch</td>
+                            <td>Rack #3</td>
+                            <td>18,728</td>
+                            <td><span class="badge danger">Targeted (Modbus Write Fuzzing)</span></td>
+                        </tr>
+                        <tr>
+                            <td>192.168.88.95</td>
+                            <td>RUGGEDCOM RS910 Serial Server</td>
+                            <td>Rack #2</td>
+                            <td>18,590</td>
+                            <td><span class="badge danger">Targeted (Coil Addresses 65533–65535)</span></td>
+                        </tr>
+                        <tr>
+                            <td>192.168.88.61</td>
+                            <td>Moxa EDS-508A Switch</td>
+                            <td>Rack #3</td>
+                            <td>18,725</td>
+                            <td><span class="badge danger">Targeted</span></td>
+                        </tr>
+                        <tr>
+                            <td>192.168.88.15</td>
+                            <td>DirectLogic 205 (PLC)</td>
+                            <td>Rack #1</td>
+                            <td>2,059</td>
+                            <td><span class="badge warning">Probed</span></td>
+                        </tr>
+                        <tr>
+                            <td>192.168.88.51</td>
+                            <td>Beckhoff CX1010 PLC (WinCE)</td>
+                            <td>Rack #4</td>
+                            <td>1,839</td>
+                            <td><span class="badge warning">Probed</span></td>
+                        </tr>
+                        <tr>
+                            <td>192.168.88.75</td>
+                            <td>Hirschmann EAGLE 20 Tofino Firewall</td>
+                            <td>Rack #1</td>
+                            <td>1,759</td>
+                            <td><span class="badge warning">Probed</span></td>
+                        </tr>
+                        <tr>
+                            <td>192.168.88.30</td>
+                            <td>Siemens SIMATIC S7-1200 (PLC)</td>
+                            <td>Rack #2</td>
+                            <td>1,234</td>
+                            <td><span class="badge info">Benign Traffic Only</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <footer>
+            4SICS ICS Network Traffic Analysis Project | Generated by Antigravity AI | View full report: <a href="Malcolm_4SICS_Report.pdf" target="_blank">Malcolm_4SICS_Report.pdf</a>
+        </footer>
+    </div>
+
+    <!-- Chart Configuration Script -->
+    <script>
+        // Chart Defaults
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = "'Outfit', sans-serif";
+
+        // Timeline Chart
+        const ctxTimeline = document.getElementById('timelineChart').getContext('2d');
+        new Chart(ctxTimeline, {{
+            type: 'line',
+            data: {{
+                labels: ['Day 1 (151020) Baseline', 'Day 2 (151021) Recon', 'Day 3 (151022) Attack'],
+                datasets: [
+                    {{
+                        label: 'Total Packets',
+                        data: [246137, 1253100, 2274747],
+                        borderColor: '#00d2ff',
+                        backgroundColor: 'rgba(0, 210, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3
+                    }},
+                    {{
+                        label: 'Attacker Packets (192.168.2.166)',
+                        data: [0, 0, 69827],
+                        borderColor: '#ff3366',
+                        backgroundColor: 'rgba(255, 51, 102, 0.2)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3
+                    }}
+                ]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{ legend: {{ position: 'top' }} }},
+                scales: {{
+                    y: {{ grid: {{ color: 'rgba(255, 255, 255, 0.05)' }} }},
+                    x: {{ grid: {{ color: 'rgba(255, 255, 255, 0.05)' }} }}
+                }}
+            }}
+        }});
+
+        // Target Distribution Chart
+        const ctxTargets = document.getElementById('targetsChart').getContext('2d');
+        new Chart(ctxTargets, {{
+            type: 'bar',
+            data: {{
+                labels: ['Moxa 192.168.88.60', 'Ruggedcom 192.168.88.95', 'Moxa 192.168.88.61', 'DirectLogic .15', 'Beckhoff .51', 'Tofino .75'],
+                datasets: [{{
+                    label: 'Packets Received from Attacker',
+                    data: [18728, 18590, 18725, 2059, 1839, 1759],
+                    backgroundColor: [
+                        '#ff3366',
+                        '#ff5277',
+                        '#ff7597',
+                        '#ffbe0b',
+                        '#ffbe0b',
+                        '#ffbe0b'
+                    ],
+                    borderRadius: 8
+                }}]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {{ legend: {{ display: false }} }},
+                scales: {{
+                    y: {{ grid: {{ color: 'rgba(255, 255, 255, 0.05)' }} }},
+                    x: {{ grid: {{ color: 'rgba(255, 255, 255, 0.05)' }} }}
+                }}
+            }}
+        }});
+    </script>
+</body>
+</html>
+"""
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print(f"[+] Successfully generated dashboard at: {output_file}")
+
+def main():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    output_html = os.path.join(base_dir, "index.html")
+    generate_html_dashboard({}, output_html)
+
+if __name__ == "__main__":
+    main()
