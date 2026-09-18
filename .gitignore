@@ -1,0 +1,11 @@
+# Ignore PCAP data files
+pcaps/
+*.pcap
+*.cap
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS generated files
+.DS_Store

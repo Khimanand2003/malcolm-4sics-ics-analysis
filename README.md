@@ -1,60 +1,85 @@
 # ICS Network Traffic Analysis with Malcolm — 4SICS Geek Lounge Dataset
 
-A self-directed learning project: deploying CISA's **Malcolm** network analysis
-suite from scratch and using it to investigate three days of real ICS attack
-traffic from the 4SICS "Geek Lounge" conference lab.
+A self-directed network security and ICS forensics project: analyzing real industrial control system (ICS/SCADA) attack traffic from the 4SICS "Geek Lounge" conference lab using CISA's **Malcolm** network analysis suite and custom Python forensic tooling.
 
-> ⚠️ Public training dataset (Netresec). The "attackers" were authorized
-> conference participants attacking demonstration equipment — not a real incident.
+> ⚠️ Public training dataset provided by **Netresec** & **CS3Sthlm**. The traffic consists of authorized conference participants conducting hands-on assessment against an isolated demonstration ICS lab.
+
+---
 
 ## What this project covers
-- Deploying Malcolm (Zeek + Suricata + Arkime + OpenSearch) on an Ubuntu VM
-- Ingesting and analyzing three PCAPs (25 MB / 134 MB / 200 MB)
-- Tracing a complete ICS attack across three days
-- Producing an evidence-backed report with explicit confidence levels
+- **Environment**: Deploying Malcolm (Zeek + Suricata + Arkime + OpenSearch) & custom forensic automation.
+- **Dataset**: Ingesting and analyzing three full PCAP captures (25 MB / 134 MB / 200 MB; ~3.7 Million total packets).
+- **Forensic Timeline**: Tracing a complete 3-day ICS reconnaissance and protocol fuzzing attack.
+- **Attribution & Verification**: Distinguishing legitimate PLC write operations from attacker probing (`192.168.2.166`).
 
-## Environment
-Malcolm running on an Ubuntu VM, accessed over HTTPS:
+---
 
-![Malcolm running in the VM](malcolm-running.png)
+## 4SICS Lab Topology & Monitored Devices
 
-## The three-day story
-| Day | Phase | Key finding |
-|-----|-------|-------------|
-| 1 (151020) | Baseline | Normal operations + benign noise; no attackers |
-| 2 (151021) | Reconnaissance | Web scanning + Modbus/S7comm fingerprinting; **no writes** |
-| 3 (151022) | Manipulation | Modbus attack with ~10,584 acknowledged coil-writes |
+| Rack / Segment | IP Address | Device Name & Description | Open Protocols |
+|---|---|---|---|
+| **Rack #1** | `192.168.88.15` | DirectLogic 205 (PLC) | PLC Control |
+| | `192.168.88.20` | Phoenix Contact FL IL 24 BK-PAC | HTTP (80), Modbus (502) |
+| | `192.168.88.25` | Advantech ADAM-5500 | FTP (21), HTTP (80, 81) |
+| | `192.168.88.49` | AXIS 206 Network Camera | FTP (21), HTTP (80), UPnP |
+| | `192.168.88.75` | Hirschmann EAGLE 20 Tofino Firewall | SSH (22), HTTPS (443) |
+| **Rack #2** | `192.168.88.30` | Siemens SIMATIC S7-1200 (PLC) | S7comm (102), Port 5001 |
+| | `192.168.88.95` | RUGGEDCOM RS910 Serial Device Server | SSH, Telnet, HTTP, Modbus (502), DNP3 (20000) |
+| **Rack #3** | `192.168.88.50` | Red Lion DSP Protocol Converter | HTTP (80), Modbus (502) |
+| | `192.168.88.60` | Moxa EDS-508A Managed Switch | SSH, Telnet, HTTP, Modbus (502) |
+| | `192.168.88.61` | Moxa EDS-508A Managed Switch | SSH, Telnet, HTTP, Modbus (502), Ethernet/IP |
+| | `192.168.88.100` | Host Engineering MB-gateway | HTTP (80), Modbus (502) |
+| **Rack #4** | `192.168.88.51` | Beckhoff CX1010 PLC (WinCE) | Telnet (23), HTTP (80), 135, 443, 1234, 5120 |
+| **Attacker Net**| `192.168.2.0/24` | Conference Participant / Attacker Subnet | `192.168.2.166` (Primary Attacker IP) |
 
-## Key evidence — Day 3 Modbus write attack
+---
 
-Modbus dashboard filtered to the attacker (`source.ip: 192.168.2.166`) on the
-Day 3 capture, showing repeated `WRITE_MULTIPLE_COILS` commands against control
-devices `192.168.88.95` and `192.168.88.60`:
+## 3-Day Forensic Timeline & Automated Analysis Results
+
+Running `python3 analyze_ics_pcap.py` against the full dataset yields the following empirical findings:
+
+| Day / File | Phase | Total Packets | Modbus Requests | Attacker Packets (`192.168.2.166`) | Key Findings |
+|---|---|---|---|---|---|
+| **Day 1** (`151020`) | Baseline | 246,137 | 0 | 0 | Normal baseline network operations; no scanning or attacks. |
+| **Day 2** (`151021`) | Recon | 1,253,100 | 19 | 0 | Web scanning + device identification (`FUNC_0x2B` Read Device ID). **Zero writes**. |
+| **Day 3** (`151022`) | Active Attack | 2,274,747 | 99,548 | **69,827** | Intensive protocol fuzzing & 10,684 Modbus write commands (`WRITE_MULTIPLE_COILS`). |
+
+---
+
+## Key Evidence — Day 3 Modbus Write Attack
+
+Attacker IP `192.168.2.166` targeting Moxa EDS-508A (`192.168.88.60`) and RUGGEDCOM RS910 (`192.168.88.95`) with repeated `WRITE_MULTIPLE_COILS` against coil addresses `65533–65535` at the boundary limit:
 
 ![Day 3 Modbus write attack](modbus-write-attack.png)
 
-Note the write **addresses (65533–65535)** — the very top of the coil address
-range. Combined with a high command-rejection rate and invalid function codes
-elsewhere in the session, this pattern indicates **protocol fuzzing/probing**
-rather than purposeful set-point manipulation.
+---
 
-## Key lesson
-The unfiltered data initially suggested an attacker wrote to the Siemens PLC.
-Filtering strictly by source IP corrected this — those writes were legitimate
-control traffic, and the attacker had only made failed connection attempts.
-**Verify source attribution before drawing conclusions.**
+## Automated Scripts & Reproduction
 
-## Tools & skills
-`Malcolm` `Zeek` `Suricata` `Arkime` `OpenSearch` · Modbus / S7comm / DNP3 ·
-passive asset identification · alert triage · network forensics ·
-distinguishing observation from assessment
+### 1. Download PCAP Datasets
+Download the official 4SICS PCAP files directly from Netresec:
+```bash
+python3 download_dataset.py
+```
+This saves the 3 PCAP files (~368 MB total) into the `./pcaps` folder.
 
-## Full report
-See the [Report](Malcolm_4SICS_Report.pdf) for the complete
-writeup: environment setup → methodology (including real dead-ends and
-course-corrections) → all three days → findings → recommendations → lessons learned.
+### 2. Run Forensic PCAP Analyzer
+Execute the native Python packet parser to extract ICS protocol stats and attacker metrics:
+```bash
+python3 analyze_ics_pcap.py
+```
 
-## Dataset
-[4SICS Geek Lounge captures](https://www.netresec.com/?page=PCAP4SICS) — Netresec.
-PCAPs are not redistributed here; download them from the source above to reproduce.
+### 3. Deploy Malcolm Suite
+To analyze the PCAPs inside Malcolm's web UI (Arkime + OpenSearch):
+```bash
+git clone https://github.com/cisagov/Malcolm.git
+cd Malcolm
+./Malcolm config
+./Malcolm start
+```
 
+---
+
+## Credits & License
+- Dataset: **[Netresec 4SICS Dataset](https://www.netresec.com/?page=PCAP4SICS)** & **[CS3Sthlm](https://cs3sthlm.se/)**
+- Full Forensic Report: [Malcolm_4SICS_Report.pdf](Malcolm_4SICS_Report.pdf)
